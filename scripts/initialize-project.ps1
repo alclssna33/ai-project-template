@@ -29,7 +29,9 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
 
 function ConvertTo-GitHubRepositoryName([string]$Url) {
     if (-not $Url) { return $null }
-    $candidate = (($Url -split '[?#]', 2)[0] -replace '\.git$', '').TrimEnd('/')
+    $candidate = ($Url -split '[?#]', 2)[0]
+    $candidate = $candidate.Trim().TrimEnd('/')
+    $candidate = $candidate -replace '\.git$', ''
     foreach ($pattern in @(
         '^https?://(?:[^@/]+@)?github\.com/(?<repo>[^/]+/[^/]+)$',
         '^ssh://(?:[^@/]+@)?github\.com/(?<repo>[^/]+/[^/]+)$',

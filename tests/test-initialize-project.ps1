@@ -61,6 +61,18 @@ Invoke-Scenario "success initializes project files and passes policy checks" {
     Assert-True ($bashPolicy.ExitCode -eq 0) $bashPolicy.Output
 }
 
+Invoke-Scenario "accepts matching remotes with trailing git suffix slash" {
+    param([string]$TestRoot)
+    $repository = New-TestRepository $TestRoot "trailing-git-suffix" -FeatureBranch
+    & git -C $repository remote set-url origin "https://github.com/example/generated-project.git/"
+    & git -C $repository remote set-url --add origin "ssh://git@github.com/example/generated-project.git/"
+    & git -C $repository remote set-url --push origin "git@github.com:example/generated-project.git/"
+
+    $result = Invoke-Native "pwsh" $initializerArgs $repository
+    Assert-True ($result.ExitCode -eq 0) $result.Output
+    Assert-NoPlaceholders $repository @("AGENTS.md", "docs/PROJECT_GUIDE.md", "README.md")
+}
+
 Invoke-Scenario "rejects default branch without mutation" {
     param([string]$TestRoot)
     $repository = New-TestRepository $TestRoot "default-branch"
