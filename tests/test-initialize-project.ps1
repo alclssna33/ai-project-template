@@ -57,7 +57,7 @@ Invoke-Scenario "success initializes project files and passes policy checks" {
     $powershellPolicy = Invoke-Native "pwsh" @("-NoProfile", "-File", "./scripts/check-policy.ps1") $repository
     Assert-True ($powershellPolicy.ExitCode -eq 0) $powershellPolicy.Output
 
-    $bashPolicy = Invoke-Native "C:\Program Files\Git\bin\bash.exe" @("./scripts/check-policy.sh") $repository
+    $bashPolicy = Invoke-Native (Resolve-GitBash) @("./scripts/check-policy.sh") $repository
     Assert-True ($bashPolicy.ExitCode -eq 0) $bashPolicy.Output
 }
 

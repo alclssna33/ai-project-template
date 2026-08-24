@@ -16,6 +16,24 @@ function Invoke-Native([string]$FilePath, [string[]]$ArgumentList, [string]$Work
     }
 }
 
+function Resolve-GitBash() {
+    $candidates = @(
+        (Join-Path ${env:ProgramFiles} "Git\bin\bash.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe")
+    ) | Where-Object { $_ }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+
+    $gitPath = (Get-Command git -ErrorAction Stop).Source
+    $gitRoot = Split-Path (Split-Path $gitPath -Parent) -Parent
+    $bashPath = Join-Path $gitRoot "bin\bash.exe"
+    if (Test-Path -LiteralPath $bashPath -PathType Leaf) { return $bashPath }
+
+    throw "[test] Git for Windows Bash not found"
+}
+
 function New-TestRoot() {
     $path = Join-Path ([IO.Path]::GetTempPath()) ("ai-project-template-tests-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $path | Out-Null

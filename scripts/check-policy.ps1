@@ -37,12 +37,12 @@ $commonRequired = @(
 )
 
 foreach ($path in $commonRequired) {
-    if (-not (Test-Path (Join-Path $repoRoot $path))) {
+    if (-not (Test-Path -LiteralPath (Join-Path $repoRoot $path) -PathType Leaf)) {
         Fail "필수 파일이 없습니다: $path"
     }
 }
 
-if ($AllowTemplatePlaceholders -and -not (Test-Path (Join-Path $repoRoot "templates/PROJECT_README.md"))) {
+if ($AllowTemplatePlaceholders -and -not (Test-Path -LiteralPath (Join-Path $repoRoot "templates/PROJECT_README.md") -PathType Leaf)) {
     Fail "필수 파일이 없습니다: templates/PROJECT_README.md"
 }
 

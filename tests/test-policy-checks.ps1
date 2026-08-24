@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "TestHelpers.ps1")
 
-$bash = "C:\Program Files\Git\bin\bash.exe"
+$bash = Resolve-GitBash
 $powershellCheckTemplate = @("-NoProfile", "-File", "./scripts/check-policy.ps1", "-AllowTemplatePlaceholders")
 $bashCheckTemplate = @("./scripts/check-policy.sh", "--allow-template-placeholders")
 $powershellCheckNormal = @("-NoProfile", "-File", "./scripts/check-policy.ps1")
@@ -66,6 +66,20 @@ Invoke-Scenario "missing common required file fails both checkers" {
     $results = Invoke-PolicyChecks $repository -AllowTemplatePlaceholders
 
     Assert-PolicyResult "missing common required file" $results 1
+}
+
+Invoke-Scenario "common required directory fails both checkers" {
+    param([string]$TestRoot)
+    $repository = New-TestRepository $TestRoot "required-directory"
+    Commit-FixtureMutation $repository {
+        $requiredPath = Join-Path $repository "prompts/START_WORK.md"
+        Remove-Item -LiteralPath $requiredPath
+        New-Item -ItemType Directory -Path $requiredPath | Out-Null
+    }
+
+    $results = Invoke-PolicyChecks $repository -AllowTemplatePlaceholders
+
+    Assert-PolicyResult "common required directory" $results 1
 }
 
 Invoke-Scenario "missing template-only file fails both checkers in explicit template mode" {
