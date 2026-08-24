@@ -51,6 +51,7 @@ jobs:
           }
           ./scripts/check-policy.ps1 @params
       - name: Test policy behavior
+        if: github.repository == 'alclssna33/ai-project-template'
         shell: pwsh
         run: |
           ./tests/test-policy-checks.ps1
