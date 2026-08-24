@@ -1,6 +1,6 @@
 # AI Project Template v1.1 Governance Hardening Design
 
-- Status: Proposed
+- Status: Approved
 - Issue: [#1](https://github.com/alclssna33/ai-project-template/issues/1)
 - Base main SHA: `56a2abcc0225a74f71d6fc7886aedcfb7e2ddd17`
 - Policy version target: `1.1.0`
