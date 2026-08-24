@@ -38,7 +38,7 @@ function Invoke-Scenario([string]$Name, [scriptblock]$Scenario) {
     }
 }
 
-Invoke-Scenario "success initializes project files and passes PowerShell policy check" {
+Invoke-Scenario "success initializes project files and passes policy checks" {
     param([string]$TestRoot)
     $repository = New-TestRepository $TestRoot "success" -FeatureBranch
 
@@ -54,8 +54,11 @@ Invoke-Scenario "success initializes project files and passes PowerShell policy 
     Assert-True ($guide.Contains("example/generated-project")) "project guide did not receive repository name"
     Assert-True ($readme.Contains("# Generated Project")) "README was not generated from project template"
 
-    $policy = Invoke-Native "pwsh" @("-NoProfile", "-File", "./scripts/check-policy.ps1") $repository
-    Assert-True ($policy.ExitCode -eq 0) $policy.Output
+    $powershellPolicy = Invoke-Native "pwsh" @("-NoProfile", "-File", "./scripts/check-policy.ps1") $repository
+    Assert-True ($powershellPolicy.ExitCode -eq 0) $powershellPolicy.Output
+
+    $bashPolicy = Invoke-Native "C:\Program Files\Git\bin\bash.exe" @("./scripts/check-policy.sh") $repository
+    Assert-True ($bashPolicy.ExitCode -eq 0) $bashPolicy.Output
 }
 
 Invoke-Scenario "rejects default branch without mutation" {
