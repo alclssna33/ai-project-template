@@ -63,10 +63,29 @@ git switch -c ai/setup/project-bootstrap-<session-id>
 pwsh ./scripts/initialize-project.ps1 `
   -ProjectName "<프로젝트명>" `
   -RepositoryFullName "alclssna33/<새-프로젝트명>" `
+  -DefaultBranch "main" `
+  -WhatIf
+
+pwsh ./scripts/initialize-project.ps1 `
+  -ProjectName "<프로젝트명>" `
+  -RepositoryFullName "alclssna33/<새-프로젝트명>" `
   -DefaultBranch "main"
 ```
 
-스크립트는 다음을 수행합니다.
+첫 명령은 dry-run입니다. 출력된 대상과 값이 맞고 `git status --short`가 비어 있음을 확인한 뒤 두 번째 명령을 실행합니다.
+
+스크립트는 쓰기 전에 다음 상태를 거부합니다.
+
+- 기본 브랜치 또는 detached HEAD
+- clean하지 않은 working tree 또는 index
+- merge, rebase, cherry-pick, revert 진행 상태
+- fetch/push 원격과 `RepositoryFullName` 불일치
+- 필수 정책·prompt·script·workflow 파일 누락
+- `POLICY_VERSION`과 공통 정책 파일의 버전 불일치
+
+`-Force` 우회 옵션은 없습니다. 안전 gate를 통과하지 못하면 수정하지 않고 중단해야 합니다.
+
+스크립트는 gate 통과 후 다음을 수행합니다.
 
 - `AGENTS.md`의 핵심 자리표시자 교체
 - `docs/PROJECT_GUIDE.md`의 프로젝트명·저장소 교체
@@ -175,6 +194,7 @@ Git 저장소에서 작업할 때 프로젝트 CLAUDE.md와 루트 AGENTS.md를 
 프로젝트마다 다음을 적용합니다.
 
 ```text
+Template repository: ON
 Allow squash merging: ON
 Allow merge commits: OFF
 Allow rebase merging: OFF
@@ -188,7 +208,7 @@ Default branch protection/ruleset:
 - Do not allow bypassing 또는 최소화
 ```
 
-CI가 준비되면 required status checks와 최신 기본 브랜치 반영 조건을 추가합니다.
+버전 1.1이 `main`에 merge되고 새 workflow가 `main`에서 통과한 뒤 required status checks와 최신 기본 브랜치 반영 조건을 추가합니다. required check 이름은 정확히 `Policy integrity / Ubuntu`, `Policy integrity / Windows`입니다.
 
 ## 9. 검사
 
@@ -196,15 +216,17 @@ CI가 준비되면 required status checks와 최신 기본 브랜치 반영 조�
 
 ```powershell
 pwsh ./scripts/check-policy.ps1 -AllowTemplatePlaceholders
+bash ./scripts/check-policy.sh --allow-template-placeholders
 ```
 
 초기화가 끝난 일반 프로젝트에서 검사:
 
 ```powershell
 pwsh ./scripts/check-policy.ps1
+bash ./scripts/check-policy.sh
 ```
 
-GitHub Actions는 중앙 템플릿 저장소에서는 자리표시자 검사를 건너뛰고, 템플릿으로 생성된 다른 저장소에서는 미해결 자리표시자를 실패 처리합니다.
+GitHub Actions는 `Policy integrity / Ubuntu`와 `Policy integrity / Windows` 두 job을 실행합니다. 중앙 템플릿 저장소에서는 명시적 template-placeholder 옵션을 전달하고, 템플릿으로 생성된 다른 저장소에서는 미해결 자리표시자를 실패 처리합니다.
 
 ## 10. 정책 운영 원칙
 
