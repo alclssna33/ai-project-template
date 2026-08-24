@@ -3,6 +3,18 @@ $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "TestHelpers.ps1")
 
+function Assert-GitBashResolverIgnoresEmptyCandidateRoot() {
+    $oldProgramFilesX86 = ${env:ProgramFiles(x86)}
+    try {
+        ${env:ProgramFiles(x86)} = ""
+        $resolved = Resolve-GitBash
+        Assert-True (Test-Path -LiteralPath $resolved -PathType Leaf) "Git Bash resolver did not return a file path"
+    } finally {
+        ${env:ProgramFiles(x86)} = $oldProgramFilesX86
+    }
+}
+
+Assert-GitBashResolverIgnoresEmptyCandidateRoot
 $bash = Resolve-GitBash
 $powershellCheckTemplate = @("-NoProfile", "-File", "./scripts/check-policy.ps1", "-AllowTemplatePlaceholders")
 $bashCheckTemplate = @("./scripts/check-policy.sh", "--allow-template-placeholders")
@@ -92,6 +104,20 @@ Invoke-Scenario "missing template-only file fails both checkers in explicit temp
     $results = Invoke-PolicyChecks $repository -AllowTemplatePlaceholders
 
     Assert-PolicyResult "missing template-only file" $results 1
+}
+
+Invoke-Scenario "template-only required directory fails both checkers in explicit template mode" {
+    param([string]$TestRoot)
+    $repository = New-TestRepository $TestRoot "template-required-directory"
+    Commit-FixtureMutation $repository {
+        $requiredPath = Join-Path $repository "templates/PROJECT_README.md"
+        Remove-Item -LiteralPath $requiredPath
+        New-Item -ItemType Directory -Path $requiredPath | Out-Null
+    }
+
+    $results = Invoke-PolicyChecks $repository -AllowTemplatePlaceholders
+
+    Assert-PolicyResult "template-only required directory" $results 1
 }
 
 Invoke-Scenario "forbidden tracked override fails both checkers" {

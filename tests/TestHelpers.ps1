@@ -17,10 +17,12 @@ function Invoke-Native([string]$FilePath, [string[]]$ArgumentList, [string]$Work
 }
 
 function Resolve-GitBash() {
-    $candidates = @(
-        (Join-Path ${env:ProgramFiles} "Git\bin\bash.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe")
-    ) | Where-Object { $_ }
+    $candidateRoots = @(
+        ${env:ProgramFiles},
+        ${env:ProgramFiles(x86)}
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    $candidates = @($candidateRoots | ForEach-Object { Join-Path $_ "Git\bin\bash.exe" })
 
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
