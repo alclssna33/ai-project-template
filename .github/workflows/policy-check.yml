@@ -10,11 +10,48 @@ permissions:
   contents: read
 
 jobs:
-  policy-integrity:
+  policy-integrity-ubuntu:
+    name: Policy integrity / Ubuntu
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      - name: Validate Bash syntax
+        run: bash -n scripts/check-policy.sh
       - name: Check policy files
-        run: bash scripts/check-policy.sh
+        shell: bash
+        run: |
+          args=()
+          if [[ "$GITHUB_REPOSITORY" == "alclssna33/ai-project-template" ]]; then
+            args+=(--allow-template-placeholders)
+          fi
+          bash scripts/check-policy.sh "${args[@]}"
+
+  policy-integrity-windows:
+    name: Policy integrity / Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          foreach ($path in @('scripts/initialize-project.ps1', 'scripts/check-policy.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { $errors | Format-List | Out-String | Write-Error; exit 1 }
+          }
+      - name: Check policy files
+        shell: pwsh
+        run: |
+          $params = @{}
+          if ($env:GITHUB_REPOSITORY -eq 'alclssna33/ai-project-template') {
+            $params.AllowTemplatePlaceholders = $true
+          }
+          ./scripts/check-policy.ps1 @params
+      - name: Test policy behavior
+        shell: pwsh
+        run: |
+          ./tests/test-policy-checks.ps1
+          ./tests/test-initialize-project.ps1
