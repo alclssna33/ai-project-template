@@ -2,7 +2,7 @@
 
 Codex, ChatGPT, Claude Code와 사람이 여러 작업을 동시에 진행할 때 브랜치·worktree·Pull Request를 안전하게 운영하기 위한 중앙 프로젝트 템플릿입니다.
 
-이 저장소를 GitHub의 **Template repository**로 지정한 뒤 신규 프로젝트 생성에 사용합니다. 신규 저장소는 템플릿의 파일 구조를 복사하지만 이후에는 독립된 저장소가 되므로, 공통 정책 변경은 각 프로젝트에 별도 동기화 PR로 반영합니다.
+이 저장소는 GitHub의 **Template repository**로 설정되어 있으며 신규 프로젝트 생성에 사용합니다. 신규 저장소는 템플릿의 파일 구조를 복사하지만 이후에는 독립된 저장소가 되므로, 공통 정책 변경은 각 프로젝트에 별도 동기화 PR로 반영합니다.
 
 ## 포함된 구성
 
@@ -21,17 +21,15 @@ Codex, ChatGPT, Claude Code와 사람이 여러 작업을 동시에 진행할 �
 | `prompts/` | 신규 프로젝트, 기존 프로젝트 도입, 정책 동기화, 일반 작업 시작 프롬프트 |
 | `POLICY_VERSION` | 중앙 정책 버전 |
 
-## 1. 이 저장소를 Template repository로 지정
+## 1. 중앙 템플릿 저장소 상태
 
-GitHub에서 이 저장소로 이동한 뒤 다음을 한 번만 설정합니다.
+`alclssna33/ai-project-template`는 현재 GitHub **Template repository**로 설정되어 있습니다.
 
 ```text
-Settings → General → Template repository 체크
+Template repository: ON
 ```
 
-설정 후 저장소 상단에 **Use this template** 버튼이 나타납니다.
-
-> 현재 자동화 도구에서는 이 저장소 설정을 직접 변경하지 못할 수 있으므로 GitHub 화면에서 확인해야 합니다.
+저장소 상단의 **Use this template** 버튼으로 신규 프로젝트를 생성합니다. 이 설정은 중앙 템플릿 저장소에만 적용하며, 템플릿으로 생성한 downstream 프로젝트에 자동으로 요구하지 않습니다.
 
 ## 2. 신규 프로젝트 생성
 
@@ -63,10 +61,29 @@ git switch -c ai/setup/project-bootstrap-<session-id>
 pwsh ./scripts/initialize-project.ps1 `
   -ProjectName "<프로젝트명>" `
   -RepositoryFullName "alclssna33/<새-프로젝트명>" `
+  -DefaultBranch "main" `
+  -WhatIf
+
+pwsh ./scripts/initialize-project.ps1 `
+  -ProjectName "<프로젝트명>" `
+  -RepositoryFullName "alclssna33/<새-프로젝트명>" `
   -DefaultBranch "main"
 ```
 
-스크립트는 다음을 수행합니다.
+첫 명령은 dry-run입니다. 출력된 대상과 값이 맞고 `git status --short`가 비어 있음을 확인한 뒤 두 번째 명령을 실행합니다.
+
+스크립트는 쓰기 전에 다음 상태를 거부합니다.
+
+- 기본 브랜치 또는 detached HEAD
+- clean하지 않은 working tree 또는 index
+- merge, rebase, cherry-pick, revert 진행 상태
+- fetch/push 원격과 `RepositoryFullName` 불일치
+- 필수 정책·prompt·script·workflow 파일 누락
+- `POLICY_VERSION`과 공통 정책 파일의 버전 불일치
+
+`-Force` 우회 옵션은 없습니다. 안전 gate를 통과하지 못하면 수정하지 않고 중단해야 합니다.
+
+스크립트는 gate 통과 후 다음을 수행합니다.
 
 - `AGENTS.md`의 핵심 자리표시자 교체
 - `docs/PROJECT_GUIDE.md`의 프로젝트명·저장소 교체
@@ -170,16 +187,21 @@ Git 저장소에서 작업할 때 프로젝트 CLAUDE.md와 루트 AGENTS.md를 
 동일 저장소의 병렬 세션은 branch와 worktree를 분리한다.
 ```
 
-## 8. 권장 GitHub 저장소 설정
+## 8. GitHub 저장소 설정
 
-프로젝트마다 다음을 적용합니다.
+중앙 템플릿 저장소 `alclssna33/ai-project-template`는 다음 상태로 운영합니다.
 
 ```text
+Template repository: ON
 Allow squash merging: ON
 Allow merge commits: OFF
 Allow rebase merging: OFF
 Automatically delete head branches: ON
+```
 
+템플릿으로 생성한 downstream 프로젝트에는 `Template repository: ON`을 요구하지 않습니다. 각 프로젝트에는 기본 브랜치 보호를 적용합니다.
+
+```text
 Default branch protection/ruleset:
 - Require a pull request before merging
 - Require conversation resolution
@@ -188,7 +210,7 @@ Default branch protection/ruleset:
 - Do not allow bypassing 또는 최소화
 ```
 
-CI가 준비되면 required status checks와 최신 기본 브랜치 반영 조건을 추가합니다.
+버전 1.1이 `main`에 merge되고 새 workflow가 `main`에서 통과한 뒤 required status checks와 최신 기본 브랜치 반영 조건을 추가합니다. required check 이름은 정확히 `Policy integrity / Ubuntu`, `Policy integrity / Windows`입니다.
 
 ## 9. 검사
 
@@ -196,15 +218,17 @@ CI가 준비되면 required status checks와 최신 기본 브랜치 반영 조�
 
 ```powershell
 pwsh ./scripts/check-policy.ps1 -AllowTemplatePlaceholders
+bash ./scripts/check-policy.sh --allow-template-placeholders
 ```
 
 초기화가 끝난 일반 프로젝트에서 검사:
 
 ```powershell
 pwsh ./scripts/check-policy.ps1
+bash ./scripts/check-policy.sh
 ```
 
-GitHub Actions는 중앙 템플릿 저장소에서는 자리표시자 검사를 건너뛰고, 템플릿으로 생성된 다른 저장소에서는 미해결 자리표시자를 실패 처리합니다.
+GitHub Actions는 `Policy integrity / Ubuntu`와 `Policy integrity / Windows` 두 job을 실행합니다. 중앙 템플릿 저장소에서는 명시적 template-placeholder 옵션을 전달하고, 템플릿으로 생성된 다른 저장소에서는 미해결 자리표시자를 실패 처리합니다.
 
 ## 10. 정책 운영 원칙
 

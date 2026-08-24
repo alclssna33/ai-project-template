@@ -15,19 +15,35 @@ $repoRoot = (& git rev-parse --show-toplevel 2>$null).Trim()
 if (-not $repoRoot) { Fail "Git 저장소 루트에서 실행해야 합니다." }
 Set-Location $repoRoot
 
-$required = @(
+$commonRequired = @(
+    ".gitattributes",
+    ".github/pull_request_template.md",
+    ".github/workflows/policy-check.yml",
+    ".claude/settings.json",
     "AGENTS.md",
     "CLAUDE.md",
+    "CONTRIBUTING.md",
     "POLICY_VERSION",
+    "README.md",
     "docs/AI_DEVELOPMENT_POLICY.md",
     "docs/PROJECT_GUIDE.md",
-    ".github/pull_request_template.md"
+    "prompts/ADOPT_EXISTING_PROJECT.md",
+    "prompts/NEW_PROJECT_BOOTSTRAP.md",
+    "prompts/START_WORK.md",
+    "prompts/SYNC_POLICY.md",
+    "scripts/check-policy.ps1",
+    "scripts/check-policy.sh",
+    "scripts/initialize-project.ps1"
 )
 
-foreach ($path in $required) {
-    if (-not (Test-Path (Join-Path $repoRoot $path))) {
+foreach ($path in $commonRequired) {
+    if (-not (Test-Path -LiteralPath (Join-Path $repoRoot $path) -PathType Leaf)) {
         Fail "필수 파일이 없습니다: $path"
     }
+}
+
+if ($AllowTemplatePlaceholders -and -not (Test-Path -LiteralPath (Join-Path $repoRoot "templates/PROJECT_README.md") -PathType Leaf)) {
+    Fail "필수 파일이 없습니다: templates/PROJECT_README.md"
 }
 
 $trackedFiles = & git ls-files
@@ -43,9 +59,19 @@ foreach ($file in $trackedFiles) {
 }
 
 try {
-    Get-Content ".claude/settings.json" -Raw | ConvertFrom-Json | Out-Null
+    $settings = Get-Content ".claude/settings.json" -Raw | ConvertFrom-Json
 } catch {
     Fail ".claude/settings.json이 유효한 JSON이 아닙니다."
+}
+
+$autoMemory = $settings.PSObject.Properties["autoMemoryEnabled"]
+if (-not $autoMemory -or $autoMemory.Value -isnot [bool] -or $autoMemory.Value) {
+    Fail ".claude/settings.json의 autoMemoryEnabled는 Boolean false여야 합니다."
+}
+
+$claudeLines = Get-Content "CLAUDE.md"
+if (-not ($claudeLines | Where-Object { $_.Trim() -ceq "@AGENTS.md" })) {
+    Fail "CLAUDE.md가 @AGENTS.md를 import하지 않습니다."
 }
 
 if (-not $AllowTemplatePlaceholders) {

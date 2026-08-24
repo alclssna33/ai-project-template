@@ -1,6 +1,6 @@
 # AI_DEVELOPMENT_POLICY.md — 공통 AI 개발·Git 안전 정책
 
-- Policy version: `1.0.0`
+- Policy version: `1.1.0`
 - Status: `Active`
 - Applies to: 이 정책을 참조하는 모든 소프트웨어 프로젝트
 - Project-specific source: 각 저장소 루트의 `AGENTS.md`

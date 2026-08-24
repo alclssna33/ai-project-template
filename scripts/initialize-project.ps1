@@ -1,9 +1,8 @@
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
     [string]$ProjectName,
-
     [string]$RepositoryFullName,
     [string]$PrimaryRemote = "origin",
     [string]$DefaultBranch = "main",
@@ -13,8 +12,7 @@ param(
     [string]$PolicyPath = "docs/AI_DEVELOPMENT_POLICY.md",
     [string]$ProjectGuidePath = "docs/PROJECT_GUIDE.md",
     [string]$IssueTracker = "GitHub Issues",
-    [switch]$KeepTemplateReadme,
-    [switch]$Force
+    [switch]$KeepTemplateReadme
 )
 
 Set-StrictMode -Version Latest
@@ -29,45 +27,126 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
     [System.IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
-function Get-RepositoryFromRemote([string]$RemoteName) {
-    $url = (& git remote get-url $RemoteName 2>$null).Trim()
-    if (-not $url) { return $null }
-
-    $withoutQuery = ($url -split '[?#]', 2)[0]
-    $withoutGit = $withoutQuery -replace '\.git$', ''
-
-    if ($withoutGit -match '^https?://(?:[^@/]+@)?github\.com/(?<repo>[^/]+/[^/]+)$') {
-        return $Matches.repo
-    }
-    if ($withoutGit -match '^ssh://(?:[^@/]+@)?github\.com/(?<repo>[^/]+/[^/]+)$') {
-        return $Matches.repo
-    }
-    if ($withoutGit -match '^(?:[^@/:]+@)?github\.com:(?<repo>[^/]+/[^/]+)$') {
-        return $Matches.repo
+function ConvertTo-GitHubRepositoryName([string]$Url) {
+    if (-not $Url) { return $null }
+    $candidate = ($Url -split '[?#]', 2)[0]
+    $candidate = $candidate.Trim().TrimEnd('/')
+    $candidate = $candidate -replace '\.git$', ''
+    foreach ($pattern in @(
+        '^https?://(?:[^@/]+@)?github\.com/(?<repo>[^/]+/[^/]+)$',
+        '^ssh://(?:[^@/]+@)?github\.com/(?<repo>[^/]+/[^/]+)$',
+        '^(?:[^@/:]+@)?github\.com:(?<repo>[^/]+/[^/]+)$'
+    )) {
+        if ($candidate -match $pattern) { return $Matches.repo }
     }
     return $null
+}
+
+function Get-GitOperationState([string]$RepositoryRoot) {
+    $markers = @('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply')
+    @($markers | Where-Object {
+        $path = (& git -C $RepositoryRoot rev-parse --git-path $_ 2>$null).Trim()
+        if (-not $path) { return $false }
+        if (-not [IO.Path]::IsPathRooted($path)) { $path = Join-Path $RepositoryRoot $path }
+        Test-Path -LiteralPath $path
+    })
+}
+
+function Get-RemoteUrls([string]$RepositoryRoot, [string[]]$Arguments) {
+    $lines = @(& git -C $RepositoryRoot @Arguments 2>$null)
+    if ($LASTEXITCODE -ne 0) { return @() }
+    @($lines | Where-Object { $_ })
+}
+
+function Resolve-RelativePath([string]$RepositoryRoot, [string]$RelativePath) {
+    Join-Path $RepositoryRoot $RelativePath
+}
+
+function Get-InitializedContent([string]$Path, [System.Collections.Specialized.OrderedDictionary]$Replacements) {
+    $content = Get-Content -LiteralPath $Path -Raw
+    foreach ($pair in $Replacements.GetEnumerator()) {
+        $content = $content.Replace($pair.Key, $pair.Value)
+    }
+    $content
 }
 
 $repoRoot = (& git rev-parse --show-toplevel 2>$null).Trim()
 if (-not $repoRoot) { Fail "Git 저장소 루트에서 실행해야 합니다." }
 Set-Location $repoRoot
 
-$status = & git status --porcelain
-if ($status -and -not $Force) {
-    Fail "작업 폴더가 clean하지 않습니다. 변경을 검토하거나 -Force를 명시하세요."
+$branch = (& git -C $repoRoot symbolic-ref --quiet --short HEAD 2>$null).Trim()
+if (-not $branch) { Fail "detached HEAD에서는 초기화할 수 없습니다." }
+if ($branch -ceq $DefaultBranch) { Fail "기본 브랜치 '$DefaultBranch'에서는 초기화할 수 없습니다." }
+
+$operations = @(Get-GitOperationState $repoRoot)
+if ($operations.Count -gt 0) { Fail "진행 중인 Git 작업이 있습니다: $($operations -join ', ')" }
+
+$status = @(& git -C $repoRoot status --porcelain=v1 --untracked-files=all)
+if ($status.Count -gt 0) { Fail "작업 폴더와 index가 clean하지 않습니다." }
+
+$fetchUrls = @(Get-RemoteUrls $repoRoot @("remote", "get-url", "--all", $PrimaryRemote))
+$pushUrls = @(Get-RemoteUrls $repoRoot @("remote", "get-url", "--push", "--all", $PrimaryRemote))
+if ($fetchUrls.Count -eq 0) { Fail "fetch 원격 URL을 확인하지 못했습니다." }
+if ($pushUrls.Count -eq 0) { Fail "push 원격 URL을 확인하지 못했습니다." }
+
+$normalizedRepositories = @()
+foreach ($url in @($fetchUrls + $pushUrls)) {
+    $repository = ConvertTo-GitHubRepositoryName $url
+    if (-not $repository) { Fail "원격 URL이 GitHub owner/repo 형식이 아닙니다." }
+    $normalizedRepositories += $repository
 }
 
+$uniqueRepositories = @($normalizedRepositories | Sort-Object -Unique)
+if ($uniqueRepositories.Count -ne 1) { Fail "fetch/push 원격 저장소가 서로 일치하지 않습니다." }
 if (-not $RepositoryFullName) {
-    $RepositoryFullName = Get-RepositoryFromRemote $PrimaryRemote
+    $RepositoryFullName = $uniqueRepositories[0]
 }
-if (-not $RepositoryFullName) {
-    Fail "RepositoryFullName을 자동 확인하지 못했습니다. -RepositoryFullName owner/repo를 지정하세요."
+if ($RepositoryFullName -notmatch '^[^/]+/[^/]+$') { Fail "RepositoryFullName은 owner/repo 형식이어야 합니다." }
+foreach ($repository in $normalizedRepositories) {
+    if (-not [string]::Equals($repository, $RepositoryFullName, [StringComparison]::OrdinalIgnoreCase)) {
+        Fail "원격 저장소와 RepositoryFullName이 일치하지 않습니다."
+    }
 }
 
+$requiredFiles = @(
+    ".gitattributes",
+    ".github/workflows/policy-check.yml",
+    ".github/pull_request_template.md",
+    "CLAUDE.md",
+    ".claude/settings.json",
+    "POLICY_VERSION",
+    $PolicyPath,
+    $ProjectGuidePath,
+    "prompts/ADOPT_EXISTING_PROJECT.md",
+    "prompts/NEW_PROJECT_BOOTSTRAP.md",
+    "prompts/START_WORK.md",
+    "prompts/SYNC_POLICY.md",
+    "scripts/check-policy.ps1",
+    "scripts/check-policy.sh",
+    "scripts/initialize-project.ps1",
+    "CONTRIBUTING.md",
+    "README.md",
+    "templates/PROJECT_README.md",
+    "AGENTS.md"
+)
+foreach ($relativePath in @($requiredFiles | Select-Object -Unique)) {
+    if (-not (Test-Path -LiteralPath (Resolve-RelativePath $repoRoot $relativePath))) {
+        Fail "필수 파일이 없습니다: $relativePath"
+    }
+}
+
+$versionFromFile = (Get-Content -LiteralPath (Resolve-RelativePath $repoRoot "POLICY_VERSION") -Raw).Trim()
+if (-not $versionFromFile) { Fail "POLICY_VERSION이 비어 있습니다." }
 if (-not $PolicyVersion) {
-    $versionFile = Join-Path $repoRoot "POLICY_VERSION"
-    if (-not (Test-Path $versionFile)) { Fail "POLICY_VERSION 파일이 없습니다." }
-    $PolicyVersion = (Get-Content $versionFile -Raw).Trim()
+    $PolicyVersion = $versionFromFile
+} elseif ($PolicyVersion -cne $versionFromFile) {
+    Fail "지정한 PolicyVersion이 POLICY_VERSION 파일과 일치하지 않습니다."
+}
+
+$policyContent = Get-Content -LiteralPath (Resolve-RelativePath $repoRoot $PolicyPath) -Raw
+$expectedPolicyLine = "Policy version: ``$PolicyVersion``"
+if (-not $policyContent.Contains($expectedPolicyLine)) {
+    Fail "$PolicyPath 파일의 정책 버전이 POLICY_VERSION과 일치하지 않습니다."
 }
 
 $replacements = [ordered]@{
@@ -82,55 +161,51 @@ $replacements = [ordered]@{
     '{{ISSUE_TRACKER}}'        = $IssueTracker
 }
 
-$filesToInitialize = @(
-    "AGENTS.md",
-    $ProjectGuidePath
-)
+$agentsContent = Get-InitializedContent (Resolve-RelativePath $repoRoot "AGENTS.md") $replacements
+$guideContent = Get-InitializedContent (Resolve-RelativePath $repoRoot $ProjectGuidePath) $replacements
+if ($KeepTemplateReadme) {
+    $readmeSource = "README.md"
+    $readmeTarget = "README.md"
+} else {
+    $readmeSource = "templates/PROJECT_README.md"
+    $readmeTarget = "README.md"
+}
+$readmeContent = Get-InitializedContent (Resolve-RelativePath $repoRoot $readmeSource) $replacements
 
-foreach ($relativePath in $filesToInitialize) {
-    $fullPath = Join-Path $repoRoot $relativePath
-    if (-not (Test-Path $fullPath)) { Fail "필수 파일이 없습니다: $relativePath" }
-
-    $content = Get-Content $fullPath -Raw
-    foreach ($pair in $replacements.GetEnumerator()) {
-        $content = $content.Replace($pair.Key, $pair.Value)
+$contentsToScan = [ordered]@{
+    "AGENTS.md" = $agentsContent
+    $ProjectGuidePath = $guideContent
+    $readmeTarget = $readmeContent
+}
+foreach ($entry in $contentsToScan.GetEnumerator()) {
+    if ($entry.Value -match '\{\{[^}]+\}\}') {
+        Fail "자리표시자가 남아 있습니다: $($entry.Key)"
     }
-    Write-Utf8NoBom $fullPath $content
 }
 
-$templateReadme = Join-Path $repoRoot "templates/PROJECT_README.md"
-$readme = Join-Path $repoRoot "README.md"
-if ((Test-Path $templateReadme) -and -not $KeepTemplateReadme) {
-    $content = Get-Content $templateReadme -Raw
-    foreach ($pair in $replacements.GetEnumerator()) {
-        $content = $content.Replace($pair.Key, $pair.Value)
-    }
-    Write-Utf8NoBom $readme $content
-    Remove-Item $templateReadme -Force
+$templateTarget = if ($KeepTemplateReadme) { "templates/PROJECT_README.md (keep)" } else { "templates/PROJECT_README.md (remove)" }
+Write-Host "Project:        $ProjectName"
+Write-Host "Repository:     $RepositoryFullName"
+Write-Host "Branch:         $branch"
+Write-Host "Policy:         $PolicyVersion"
+Write-Host "Targets:        AGENTS.md, $ProjectGuidePath, README.md, $templateTarget"
+
+if (-not $PSCmdlet.ShouldProcess($repoRoot, "initialize project policy files")) { return }
+
+Write-Utf8NoBom (Resolve-RelativePath $repoRoot "AGENTS.md") $agentsContent
+Write-Utf8NoBom (Resolve-RelativePath $repoRoot $ProjectGuidePath) $guideContent
+Write-Utf8NoBom (Resolve-RelativePath $repoRoot "README.md") $readmeContent
+
+if (-not $KeepTemplateReadme) {
+    $templateReadme = Resolve-RelativePath $repoRoot "templates/PROJECT_README.md"
+    Remove-Item -LiteralPath $templateReadme
     $templateDir = Split-Path $templateReadme -Parent
-    if ((Test-Path $templateDir) -and -not (Get-ChildItem $templateDir -Force)) {
-        Remove-Item $templateDir -Force
+    if ((Test-Path -LiteralPath $templateDir) -and -not (Get-ChildItem -LiteralPath $templateDir)) {
+        Remove-Item -LiteralPath $templateDir
     }
-}
-
-$remaining = @()
-foreach ($relativePath in @("AGENTS.md", $ProjectGuidePath, "README.md")) {
-    $fullPath = Join-Path $repoRoot $relativePath
-    if (Test-Path $fullPath) {
-        $matches = Select-String -Path $fullPath -Pattern '\{\{[^}]+\}\}' -AllMatches
-        if ($matches) { $remaining += $relativePath }
-    }
-}
-
-if ($remaining.Count -gt 0) {
-    Fail "자리표시자가 남아 있습니다: $($remaining -join ', ')"
 }
 
 Write-Host "프로젝트 초기화 파일을 생성했습니다." -ForegroundColor Green
-Write-Host "Project:    $ProjectName"
-Write-Host "Repository: $RepositoryFullName"
-Write-Host "Policy:     $PolicyVersion"
-Write-Host ""
 Write-Host "다음 단계:"
 Write-Host "1. git diff로 변경을 검토합니다."
 Write-Host "2. AGENTS.md와 docs/PROJECT_GUIDE.md의 미정·미구성 항목을 실제 프로젝트에 맞게 채웁니다."
